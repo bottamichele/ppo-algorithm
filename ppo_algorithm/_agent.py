@@ -264,8 +264,6 @@ class PPOTrainAgent:
                 surr_loss = tc.min(surr_loss_1, surr_loss_2).mean()
 
                 #Compute value-state loss.
-                if V_batch.shape != return_batch.shape:
-                    a = 0 
                 value_loss = mse_loss(V_batch, return_batch)
 
                 #Compute entropy bonus.
