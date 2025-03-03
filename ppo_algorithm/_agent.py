@@ -52,7 +52,8 @@ class PPOAgent:
         obs = obs.unsqueeze(0)
 
         #An action is choosen
-        action_values = self._actor(obs)
+        with tc.no_grad():
+            action_values = self._actor(obs)
 
         if self._action_space_type == ActionSpace.DISCRETE:
             action_probs = softmax(action_values, dim=-1)
@@ -63,7 +64,7 @@ class PPOAgent:
             conv_matrix = tc.diag(tc.full((action_size,), 0.5, device=action_values.device))
             
             action_distr = MultivariateNormal(action_values, conv_matrix)
-            return action_distr.sample()
+            return action_distr.sample().squeeze()
 
 
 # ========================================
@@ -73,7 +74,7 @@ class PPOAgent:
 class PPOTrainAgent:
     """A Proximal Policy Optimization's agent which is trained."""
 
-    def __init__(self, actor, critic, action_space_type, lr=10**-3, gamma=0.95, batch_size=64, n_epochs=10, clip_range=0.2, entropy_coeff=0.01, norm_adv=True, device=tc.device("cpu")):
+    def __init__(self, actor, critic, action_space_type, lr=10**-3, gamma=0.95, batch_size=64, n_epochs=8, clip_range=0.2, entropy_coeff=0.0, norm_adv=True, device=tc.device("cpu")):
         """Create new PPO's agent which will get trained.
         
         Parameters
