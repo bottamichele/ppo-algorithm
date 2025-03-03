@@ -212,16 +212,17 @@ class PPOTrainAgent:
         log_probs       = tc.cat(self.trajectory.log_probs).to(device=self.device)
         returns         = tc.Tensor(self.trajectory.returns).to(device=self.device)
 
-        if self.trajectory.observations[0].shape[0] == 1:
+        if self.trajectory.observations[0].ndim == 1 and self.trajectory.observations[0].shape[0] == 1:
             observations = tc.cat(self.trajectory.observations)
         else:
-            observations = tc.vstack(self.trajectory.observations)
+            observations = tc.stack(self.trajectory.observations)
         observations = observations.to(device=self.device)
 
+        assert self.trajectory.actions[0].ndim == 1
         if self.trajectory.actions[0].shape[0] == 1:
-           actions = tc.cat(self.trajectory.actions)
+            actions = tc.cat(self.trajectory.actions)
         else:
-            actions = tc.vstack(self.trajectory.actions)
+            actions = tc.stack(self.trajectory.actions)
         actions = actions.to(device=self.device)
 
         #Compute advantage.
