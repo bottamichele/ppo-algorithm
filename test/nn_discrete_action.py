@@ -75,6 +75,6 @@ if __name__ == "__main__":
         agent.train()
 
         #Print training stats of current epidode ended.
-        print("- Episode {:3d}: score = {:3.1f}; avg score = {:3.2f}; total states = {:>5d}".format(int(episode), scores[-1], np.mean(scores[-100:]), int(total_states)))
+        print("- Episode {:3d}: score = {:3.1f}; avg score = {:3.2f}; total states = {:>5d}".format(episode, scores[-1], np.mean(scores[-100:]), total_states))
 
     env.close()
