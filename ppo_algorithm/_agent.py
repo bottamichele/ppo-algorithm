@@ -3,7 +3,7 @@ import torch as tc
 from torch.nn import Module
 from torch.nn.functional import softmax, mse_loss
 from torch.optim import Adam
-from torch.distributions import Categorical, MultivariateNormal
+from torch.distributions import Categorical, MultivariateNormal, kl_divergence
 
 from ._action_space import ActionSpace
 from ._trajectory import Trajectory
@@ -74,7 +74,7 @@ class PPOAgent:
 class PPOTrainAgent:
     """A Proximal Policy Optimization's agent which is trained."""
 
-    def __init__(self, actor, critic, action_space_type, lr=10**-3, gamma=0.95, batch_size=64, n_epochs=8, clip_range=0.2, entropy_coeff=0.0, norm_adv=True, device=tc.device("cpu")):
+    def __init__(self, actor, critic, action_space_type, lr=10**-3, gamma=0.95, batch_size=64, n_epochs=8, clip_range=0.2, entropy_coeff=0.0, kl_coeff=0.0, kl_target=0.1,norm_adv=True, device=tc.device("cpu")):
         """Create new PPO's agent which will get trained.
         
         Parameters
@@ -98,10 +98,16 @@ class PPOTrainAgent:
             batch size
 
         n_epochs: int, optional
-            number of epochs per episode to optimize the surrogate loss
+            number of epochs per episode to optimize the policy loss
 
         clip_range: float, optional
             clip value used into the surrogate loss
+
+        kl_coeff: float, optional
+            KL coefficient
+
+        kl_target: float, optional
+            KL target
 
         entropy_coeff: float, optional
             entropy coefficient
@@ -110,7 +116,7 @@ class PPOTrainAgent:
             whether or not to normalize the advantage
             
         device: torch.device, optional
-            aaaa"""
+            device which agent is trained on"""
         
         #Check the parameters.
         if not isinstance(actor, Module):
@@ -139,6 +145,8 @@ class PPOTrainAgent:
         self.n_epochs = n_epochs
         self.clip_range = clip_range
         self.entropy_coeff = entropy_coeff
+        self.kl_coeff = kl_coeff
+        self.kl_target = kl_target
         self.norm_adv = norm_adv
         self.device = device
 
@@ -202,6 +210,49 @@ class PPOTrainAgent:
             action_distr = MultivariateNormal(action_values, conv_matrix)
             return action_distr.sample(), action_distr
         
+    def _build_distribution_batch(self, distributions):
+        """Create a distribution batch from a list of distributions.
+        
+        Parameter
+        --------------------
+        distributions: list
+            a list of distributions"""
+        
+        if self.action_space_type == ActionSpace.DISCRETE:
+            probs_list = []
+
+            for dist in distributions:
+                probs = dist.probs
+
+                assert probs.ndim == 1 or (probs.ndim == 2 and probs.shape[0] == 1), "This tensor is supposed to be with shape (dim) or (1, dim)"
+                if probs.ndim > 1:
+                    probs = probs.squeeze(0)
+
+                probs_list.append(probs)
+
+            return Categorical(probs=tc.stack(probs_list))
+        elif self.action_space_type == ActionSpace.CONTINUOUS:
+            mean_list = []
+            cov_mat_list = []
+
+            for dist in distributions:
+                mean = dist.mean
+                cov_mat = dist.covariance_matrix
+
+                assert mean.ndim == 1 or (mean.ndim == 2 and mean.shape[0] == 1), "This tensor is supposed to be with shape (dim) or (1, dim)"
+                if mean.ndim > 1:
+                    mean = mean.squeeze(0)
+
+                assert cov_mat.ndim == 1 or (cov_mat.ndim == 2 and cov_mat.shape[0] == 1), "This tensor is supposed to be with shape (dim) or (1, dim)"
+                if cov_mat.ndim > 1:
+                    cov_mat = cov_mat.squeeze(0)
+
+                mean_list.append(mean)
+                cov_mat_list.append(cov_mat)
+
+            return MultivariateNormal(loc=tc.stack(mean), covariance_matrix=tc.stack(cov_mat_list))
+            
+
     def train(self):
         """Do train step."""
         
@@ -246,12 +297,12 @@ class PPOTrainAgent:
 
                 obs_batch           = observations[start:end]
                 action_batch        = actions[start:end]
-                distribution_batch  = distributions[start:end]
+                distribution_batch  = self._build_distribution_batch(distributions[start:end])
                 log_prob_batch      = log_probs[start:end]
                 return_batch        = returns[start:end]
                 adv_batch           = adv[start:end]
 
-                #Compute new 
+                #Compute new distributions and value-state.
                 _, new_distribution_batch = self._get_action(obs_batch, False)
                 new_log_prob_batch = new_distribution_batch.log_prob(action_batch)
                 V_batch = self.critic(obs_batch).squeeze(-1)
@@ -270,8 +321,11 @@ class PPOTrainAgent:
                 #Compute entropy bonus.
                 entropy_bonus = new_distribution_batch.entropy().mean()
 
+                #Compute KL divergence.
+                kl_value = kl_divergence(distribution_batch, new_distribution_batch).mean()
+
                 #Compute actor loss.
-                actor_loss = -(surr_loss + self.entropy_coeff * entropy_bonus)
+                actor_loss = -(surr_loss - self.kl_coeff * kl_value + self.entropy_coeff * entropy_bonus)
 
                 #Backward for actor's neural network.
                 self.actor_optimizer.zero_grad()
@@ -282,5 +336,11 @@ class PPOTrainAgent:
                 self.critic_optimizer.zero_grad()
                 value_loss.backward()
                 self.critic_optimizer.step()
+
+                #Update KL coefficient.
+                if kl_value < self.kl_target / 1.5:
+                    self.kl_coeff /= 2
+                elif kl_value > self.kl_target * 1.5:
+                    self.kl_coeff *= 2
 
         self.trajectory.clear()
