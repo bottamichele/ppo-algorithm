@@ -10,14 +10,16 @@ from ppo_algorithm import PPOTrainAgent, ActionSpace, NN
 # ============ HYPERPARAMETERS ===========
 # ========================================
 
-EPISODES = 500
+EPISODES = 1000
 CLIP_RANGE = 0.2
 BATCH_SIZE = 64
 GAMMA = 0.99
 LEARNING_RATE = 10**-3
 NORMALIZE_ADVANTAGE = True
-N_EPOCHS_PER_EPISODE = 10
+N_EPOCHS_PER_EPISODE = 8
 ENTROPY_COEFFICIENT = 0.01
+KL_COEFFICIENT = 0.0
+KL_TARGET = 0.0
 DEVICE = tc.device("cpu")
 
 # ========================================
@@ -43,6 +45,8 @@ if __name__ == "__main__":
                           n_epochs=N_EPOCHS_PER_EPISODE, 
                           norm_adv=NORMALIZE_ADVANTAGE, 
                           entropy_coeff=ENTROPY_COEFFICIENT,
+                          kl_coeff=KL_COEFFICIENT,
+                          kl_target=KL_TARGET,
                           device=DEVICE)
 
     #Training phase.
