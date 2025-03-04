@@ -224,7 +224,7 @@ class PPOTrainAgent:
             for dist in distributions:
                 probs = dist.probs
 
-                assert probs.ndim == 1 or (probs.ndim == 2 and probs.shape[0] == 1), "This tensor is supposed to be with shape (dim) or (1, dim)"
+                assert probs.ndim == 1 or (probs.ndim == 2 and probs.shape[0] == 1), f"Unexpected probs.shape = {probs.shape}. Expected probs.shape = (n,) or (1, n)"
                 if probs.ndim > 1:
                     probs = probs.squeeze(0)
 
@@ -239,18 +239,18 @@ class PPOTrainAgent:
                 mean = dist.mean
                 cov_mat = dist.covariance_matrix
 
-                assert mean.ndim == 1 or (mean.ndim == 2 and mean.shape[0] == 1), "This tensor is supposed to be with shape (dim) or (1, dim)"
+                assert mean.ndim == 1 or (mean.ndim == 2 and mean.shape[0] == 1), f"Unexpected mean.shape = {mean.shape}. Expected mean.shape = (n,) or (1, n)"
                 if mean.ndim > 1:
                     mean = mean.squeeze(0)
 
-                assert cov_mat.ndim == 1 or (cov_mat.ndim == 2 and cov_mat.shape[0] == 1), "This tensor is supposed to be with shape (dim) or (1, dim)"
+                assert cov_mat.ndim == 1 or (cov_mat.ndim == 3 and cov_mat.shape[0] == 1 and cov_mat.shape[1] == cov_mat.shape[1]), f"Unexpected mean.shape = {mean.shape}. Expected mean.shape = (n,) or (1, n, n)"
                 if cov_mat.ndim > 1:
                     cov_mat = cov_mat.squeeze(0)
 
                 mean_list.append(mean)
                 cov_mat_list.append(cov_mat)
 
-            return MultivariateNormal(loc=tc.stack(mean), covariance_matrix=tc.stack(cov_mat_list))
+            return MultivariateNormal(loc=tc.stack(mean_list), covariance_matrix=tc.stack(cov_mat_list))
             
 
     def train(self):
