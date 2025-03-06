@@ -2,7 +2,7 @@ import torch as tc
 
 from torch.nn import Module
 from torch.nn.functional import softmax
-from torch.distributions import Categorical, MultivariateNormal
+from torch.distributions import Categorical, Normal, MultivariateNormal
 
 def policy_da(model, obs):
     """Choose a action from obs for a policy with disrete action space.
@@ -61,9 +61,12 @@ def policy_ca(model, obs):
         out, _ = model(obs)
         
         action_size = out.shape[1]
-        act_dist = MultivariateNormal(loc=out, 
-                                      covariance_matrix=tc.diag(tc.full(action_size, 
-                                                                        0.5,
-                                                                        device=obs.device)))
+        if action_size == 1:
+            act_dist = Normal(loc=out.reshape(-1), scale=0.5)
+        else:
+            act_dist = MultivariateNormal(loc=out, 
+                                          covariance_matrix=tc.diag(tc.full(action_size, 
+                                                                            0.5,
+                                                                            device=obs.device)))
 
     return act_dist.sample().view(size=-1)

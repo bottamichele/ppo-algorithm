@@ -3,7 +3,7 @@ import torch as tc
 from torch.nn import Module
 from torch.nn.functional import softmax, mse_loss
 from torch.nn.utils import clip_grad_norm_
-from torch.distributions import Categorical, MultivariateNormal
+from torch.distributions import Categorical, Normal, MultivariateNormal
 from torch.utils.data import DataLoader, TensorDataset
 
 # ========================================
@@ -76,10 +76,13 @@ def train_policy_ca(model, obs):
     out, value = model(obs)
         
     action_size = out.shape[1]
-    act_dist = MultivariateNormal(loc=out, 
-                                  covariance_matrix=tc.diag(tc.full(action_size, 
-                                                                    0.5,
-                                                                    device=obs.device)))
+    if action_size == 1:
+        act_dist = Normal(loc=out.reshape(-1), scale=0.5)
+    else:
+        act_dist = MultivariateNormal(loc=out, 
+                                      covariance_matrix=tc.diag(tc.full(action_size, 
+                                                                        0.5,
+                                                                        device=obs.device)))
 
     return act_dist.sample(), value, act_dist
 
@@ -144,7 +147,7 @@ def ppo_train_step(model, policy_fn, buffer, optimizer, norm_adv=True, n_epochs=
             _, new_value_b, new_act_dist_b = policy_fn(model, obs_b)
 
             #Compute new probabilities.
-            new_log_prob_b = new_act_dist_b.sample(action_b)
+            new_log_prob_b = new_act_dist_b.log_prob(action_b)
 
             #Normalize advantages.
             if norm_adv:
@@ -160,7 +163,7 @@ def ppo_train_step(model, policy_fn, buffer, optimizer, norm_adv=True, n_epochs=
             surr_loss = tc.min(surr_loss_1, surr_loss_2).mean()
 
             #Compute value loss.
-            value_loss = mse_loss(new_value_b, return_b)
+            value_loss = mse_loss(new_value_b.reshape(-1), return_b)
 
             #Compute entropy.
             entropy = new_act_dist_b.entropy().mean()
