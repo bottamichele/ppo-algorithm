@@ -88,12 +88,12 @@ class Buffer:
         value: torch.Tensor
             value-state of each actor"""
         
-        assert obs.shape == self.observations.shape[1:]
-        assert action.shape == self.actions.shape[1:]
-        assert log_prob.shape == self.log_probs.shape[1:]
-        assert reward.shape == self.rewards.shape[1:]
-        assert done.shape == self.dones.shape[1:]
-        assert value.shape == self.values.shape[1:]
+        assert obs.shape == self.observations.shape[1:], f"Expected shape = {self.observations.shape[1:]}. obs.shape was {obs.shape}"
+        assert action.shape == self.actions.shape[1:], f"Expected shape = {self.actions.shape[1:]}. action.shape was {action.shape}"
+        assert log_prob.shape == self.log_probs.shape[1:], f"Expected shape = {self.log_probs.shape[1:]}. log_prob.shape was {log_prob.shape}"
+        assert reward.shape == self.rewards.shape[1:], f"Expected shape = {self.rewards.shape[1:]}. reward.shape was {reward.shape}"
+        assert done.shape == self.dones.shape[1:], f"Expected shape = {self.dones.shape[1:]}. done.shape was {done.shape}"
+        assert value.shape == self.values.shape[1:], f"Expected shape = {self.values.shape[1:]}. value.shape was {value.shape}"
 
         self.observations[self._curr_idx] = obs
         self.actions[self._curr_idx]      = action
@@ -120,6 +120,9 @@ class Buffer:
             
         gamma: float, optional
             discount factor"""
+
+        assert last_value.shape == self.advantages.shape[1:], f"Expected shape = {self.advantages.shape[1:]}. last_value.shape was {last_value.shape}"
+        assert last_done.shape == self.advantages.shape[1:], f"Expected shape = {self.advantages.shape[1:]}. last_done.shape was {last_done.shape}"
 
         if gae_coeff <= 0.0 or gae_coeff > 1.0:
             raise ValueError("gae_coeff must be a value which belongs (0, 1].")
