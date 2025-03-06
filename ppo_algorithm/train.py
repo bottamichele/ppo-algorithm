@@ -80,8 +80,8 @@ def train_policy_ca(model, obs):
         act_dist = Normal(loc=out.reshape(-1), scale=0.5)
     else:
         act_dist = MultivariateNormal(loc=out, 
-                                      covariance_matrix=tc.diag(tc.full(action_size, 
-                                                                        0.5,
+                                      covariance_matrix=tc.diag(tc.full(size=(action_size,), 
+                                                                        fill_value=0.5,
                                                                         device=obs.device)))
 
     return act_dist.sample(), value, act_dist
