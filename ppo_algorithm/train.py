@@ -174,7 +174,8 @@ def ppo_train_step(model, policy_fn, buffer, optimizer, norm_adv=True, n_epochs=
             #Compute gradient discent.
             optimizer.zero_grad()
             loss.backward()
-            clip_grad_norm_(model.parameters(), max_grad_norm)
+            if max_grad_norm is not None:
+                clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
 
             #Compute approximante KL divergence (for more info http://joschu.net/blog/kl-approx.html).
