@@ -35,7 +35,7 @@ DEVICE = tc.device("cpu")
 
 if __name__ == "__main__":
     #Create enviroment.
-    envs = SyncVectorEnv([gym.make("LunarLander-v3") for _ in range(N_ACTORS)])
+    envs = gym.make_vec("LunarLander", num_envs=N_ACTORS, vectorization_mode="sync")
     OBSERVATION_SIZE = envs.single_observation_space.shape[0]
     ACTION_SIZE = envs.single_action_space.n
 
