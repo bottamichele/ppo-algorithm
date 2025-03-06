@@ -2,73 +2,85 @@ import gymnasium as gym
 import numpy as np
 import torch as tc
 
+from gymnasium.spaces import Box
+from gymnasium.wrappers import GrayscaleObservation, ResizeObservation, FrameStackObservation, TransformObservation
+from gymnasium.wrappers.vector import RecordEpisodeStatistics
+from gymnasium.vector import SyncVectorEnv, AsyncVectorEnv
+
 from torch.optim import Adam
 
-from gymnasium.wrappers.vector import RecordEpisodeStatistics
-
-from ppo_algorithm import ActorCritic, Buffer
-from ppo_algorithm.train import train_policy_ca, ppo_train_step
+from ppo_algorithm import CnnActorCritic, Buffer
+from ppo_algorithm.train import train_policy_da, ppo_train_step
 
 # ========================================
 # ============ HYPERPARAMETERS ===========
 # ========================================
 
-TARGET_TOTAL_STEPS = 500000
-N_ACTORS = 1
+TARGET_TOTAL_FRAMES = 200000
+FRAME_STACK = 4
+N_ACTORS = 8
 N_STEPS = 250
 GAMMA = 0.99
 GAE_COEFFICIENT = 0.95
 NORMALIZE_ADVANTAGE = False
 BATCH_SIZE = 64
 MAX_GRADIENT_NORM = 0.5
-LEARNING_RATE = 10**-3
-N_EPOCHS_PER_EPISODE = 6
+LEARNING_RATE = 10**-4
+N_EPOCHS_PER_EPISODE = 4
 CLIP_RANGE = 0.2
 VALUE_COEFFICIENT = 0.5
 ENTROPY_COEFFICIENT = 0.0
 KL_TARGET = None
-DEVICE = tc.device("cpu")
+DEVICE = tc.device("cuda" if tc.cuda.is_available() else "cpu")
 
 # ========================================
 # ================= MAIN =================
 # ========================================
 
+def make_env(env_name):
+    env = gym.make(env_name, render_mode="rgb_array")
+    env = TransformObservation(env, lambda x:env.render(), Box(low=0, high=255, shape=(400, 600, 3), dtype=np.uint8))
+    env = GrayscaleObservation(env)
+    env = ResizeObservation(env, (84, 84))
+    env = FrameStackObservation(env, stack_size=FRAME_STACK, padding_type="zero")
+    
+    return env
+
 if __name__ == "__main__":
     #Create enviroment.
-    envs = gym.make_vec("LunarLander-v3", num_envs=N_ACTORS, vectorization_mode="async", continuous=True)
-    envs = RecordEpisodeStatistics(envs, 1)
-    OBSERVATION_SIZE = envs.single_observation_space.shape[0]
-    ACTION_SIZE = envs.single_action_space.shape[0]
+    envs = AsyncVectorEnv([lambda:make_env("CartPole-v1") for _ in range(N_ACTORS)])
+    # envs = SyncVectorEnv([lambda:make_env("CartPole-v1") for _ in range(N_ACTORS)])
+    envs = RecordEpisodeStatistics(envs, buffer_length=1)
+    OBSERVATION_SIZE = envs.single_observation_space.shape
+    ACTION_SIZE = envs.single_action_space.n
 
     #Create ActorCritic net.
-    model = ActorCritic(OBSERVATION_SIZE, ACTION_SIZE, 256, 1, 1, 1).to(device=DEVICE)
+    model = CnnActorCritic(obs_size=OBSERVATION_SIZE, action_size=ACTION_SIZE).to(device=DEVICE)
 
     #Create optimizer
     optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
     #Create buffer.
-    buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, ACTION_SIZE, device=DEVICE)
+    buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, 1, obs_dtype=tc.uint8, act_dtype=tc.int32, device=DEVICE)
 
     #Training phase.
     scores = []
-    total_states = 0
+    total_frames = 0
     obs, infos = envs.reset()
     done = np.zeros(N_ACTORS, dtype=np.int32)
 
-    print("Train Phase")
-
-    while total_states <= TARGET_TOTAL_STEPS:
+    while total_frames <= TARGET_TOTAL_FRAMES:
         for _ in range(N_STEPS):
             obs = tc.from_numpy(obs).to(device=DEVICE)
             done = tc.from_numpy(done).to(dtype=tc.int32, device=DEVICE)
 
             #Choose action and compute log probability
             with tc.no_grad():
-                action, value, action_dist = train_policy_ca(model, obs)
+                action, value, action_dist = train_policy_da(model, obs)
                 log_prob = action_dist.log_prob(action)
 
             #Perform action chosen.
-            next_obs, r, terminated, truncation, infos = envs.step(action.cpu().numpy())
+            next_obs, r, terminated, truncation, infos = envs.step(action.reshape(-1).cpu().to(dtype=tc.int32).numpy())
             reward = tc.from_numpy(r).to(device=DEVICE)
 
             #Store one step infos into buffer.
@@ -77,10 +89,10 @@ if __name__ == "__main__":
             #Next observation.
             obs = next_obs
             done = np.logical_or(terminated, truncation)
-            total_states += 1
+            total_frames += 1
 
             if "episode" in infos:
-                print("- state = {:>6d}; cum. reward = {}".format(total_states, infos["episode"]["r"]))
+                print("- state = {:>6d}; cum. reward = {}".format(total_frames, infos["episode"]["r"]))
 
         #Compute advantages and returns.
         with tc.no_grad():
@@ -89,7 +101,7 @@ if __name__ == "__main__":
 
         #Train step.
         ppo_train_step(model, 
-                       train_policy_ca, 
+                       train_policy_da, 
                        buffer, 
                        optimizer, 
                        norm_adv=NORMALIZE_ADVANTAGE, 

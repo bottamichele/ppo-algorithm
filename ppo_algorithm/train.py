@@ -151,7 +151,7 @@ def ppo_train_step(model, policy_fn, buffer, optimizer, norm_adv=True, n_epochs=
 
             #Normalize advantages.
             if norm_adv:
-                adv_b = (adv_b - adv_b.mean()) / (adv_b + 10**-8)
+                adv_b = (adv_b - adv_b.mean()) / (adv_b.std() + 10**-8)
 
             #Compute ratios.
             log_ratio_b = new_log_prob_b - log_prob_b
