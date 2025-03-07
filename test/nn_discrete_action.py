@@ -35,7 +35,7 @@ DEVICE = tc.device("cpu")
 
 if __name__ == "__main__":
     #Create enviroment.
-    envs = gym.make_vec("CartPole-v1", num_envs=N_ACTORS, vectorization_mode="sync")
+    envs = gym.make_vec("CartPole-v1", num_envs=N_ACTORS, vectorization_mode="async")
     envs = RecordEpisodeStatistics(envs, 1)
     OBSERVATION_SIZE = envs.single_observation_space.shape[0]
     ACTION_SIZE = envs.single_action_space.n
