@@ -24,8 +24,7 @@ def policy_da(model, obs):
     if not isinstance(model, Module):
         """model must be a torch.nn.Module's subclass."""
 
-    if obs.ndim == 1:
-        obs = obs.unsqueeze(0)
+    obs = obs.unsqueeze(0)
 
     with tc.no_grad():
         out, _ = model(obs)
@@ -54,8 +53,7 @@ def policy_ca(model, obs):
     if not isinstance(model, Module):
         """model must be a torch.nn.Module's subclass."""
 
-    if obs.ndim == 1:
-        obs = obs.unsqueeze(0)
+    obs = obs.unsqueeze(0)
 
     with tc.no_grad():
         out, _ = model(obs)
@@ -69,4 +67,4 @@ def policy_ca(model, obs):
                                                                             fill_value=0.5,
                                                                             device=obs.device)))
 
-    return act_dist.sample().view(size=-1)
+    return act_dist.sample().view(-1)
