@@ -13,16 +13,16 @@ from ppo_algorithm.train import train_policy_da, ppo_train_step
 # ============ HYPERPARAMETERS ===========
 # ========================================
 
-TARGET_TOTAL_STEPS = 50000
-N_ACTORS = 1
+TARGET_TOTAL_STEPS = 20000
+N_ACTORS = 6
 N_STEPS = 250
 GAMMA = 0.99
 GAE_COEFFICIENT = 0.95
-NORMALIZE_ADVANTAGE = False
+NORMALIZE_ADVANTAGE = True
 BATCH_SIZE = 64
 MAX_GRADIENT_NORM = 0.5
 LEARNING_RATE = 10**-3
-N_EPOCHS_PER_EPISODE = 6
+N_EPOCHS = 4
 CLIP_RANGE = 0.2
 VALUE_COEFFICIENT = 0.5
 ENTROPY_COEFFICIENT = 0.0
@@ -36,7 +36,7 @@ DEVICE = tc.device("cpu")
 if __name__ == "__main__":
     #Create enviroment.
     envs = gym.make_vec("CartPole-v1", num_envs=N_ACTORS, vectorization_mode="async")
-    envs = RecordEpisodeStatistics(envs, 1)
+    envs = RecordEpisodeStatistics(envs, buffer_length=1)
     OBSERVATION_SIZE = envs.single_observation_space.shape[0]
     ACTION_SIZE = envs.single_action_space.n
 
@@ -50,7 +50,6 @@ if __name__ == "__main__":
     buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, 1, act_dtype=tc.int32, device=DEVICE)
 
     #Training phase.
-    scores = []
     total_states = 0
     obs, infos = envs.reset()
     done = np.zeros(N_ACTORS, dtype=np.int32)
@@ -68,7 +67,7 @@ if __name__ == "__main__":
                 log_prob = action_dist.log_prob(action)
 
             #Perform action chosen.
-            next_obs, r, terminated, truncation, infos = envs.step(action.reshape(-1).cpu().to(dtype=tc.int32).numpy())
+            next_obs, r, terminated, truncation, infos = envs.step(action.reshape(-1).cpu().numpy())
             reward = tc.from_numpy(r).to(device=DEVICE)
 
             #Store one step infos into buffer.
@@ -80,7 +79,7 @@ if __name__ == "__main__":
             total_states += 1
 
             if "episode" in infos:
-                print("- state = {:>6d}; cum. reward = {}".format(total_states, infos["episode"]["r"]))
+                print("- state = {:>6d}; cum. reward = {}".format(total_states, infos["episode"]["r"][infos["_episode"]]))
 
         #Compute advantages and returns.
         with tc.no_grad():
@@ -93,7 +92,7 @@ if __name__ == "__main__":
                        buffer, 
                        optimizer, 
                        norm_adv=NORMALIZE_ADVANTAGE, 
-                       n_epochs=N_EPOCHS_PER_EPISODE, 
+                       n_epochs=N_EPOCHS, 
                        batch_size=BATCH_SIZE, 
                        max_grad_norm=MAX_GRADIENT_NORM,
                        clip_range=CLIP_RANGE,

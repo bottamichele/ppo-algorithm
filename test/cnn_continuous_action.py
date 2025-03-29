@@ -27,7 +27,7 @@ NORMALIZE_ADVANTAGE = True
 BATCH_SIZE = 64
 MAX_GRADIENT_NORM = 0.5
 LEARNING_RATE = 10**-4
-N_EPOCHS_PER_EPISODE = 4
+N_EPOCHS = 4
 CLIP_RANGE = 0.2
 VALUE_COEFFICIENT = 0.5
 ENTROPY_COEFFICIENT = 0.01
@@ -63,7 +63,6 @@ if __name__ == "__main__":
     buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, ACTION_SIZE, obs_dtype=tc.uint8, device=DEVICE)
 
     #Training phase.
-    scores = []
     total_frames = 0
     obs, infos = envs.reset()
     done = np.zeros(N_ACTORS, dtype=np.int32)
@@ -79,7 +78,7 @@ if __name__ == "__main__":
                 log_prob = action_dist.log_prob(action)
 
             #Perform action chosen.
-            next_obs, r, terminated, truncation, infos = envs.step(action.reshape((N_ACTORS, ACTION_SIZE)).cpu().to(dtype=tc.int32).numpy())
+            next_obs, r, terminated, truncation, infos = envs.step(action.reshape((N_ACTORS, ACTION_SIZE)).cpu().numpy())
             reward = tc.from_numpy(r).to(device=DEVICE)
 
             #Store one step infos into buffer.
@@ -91,7 +90,7 @@ if __name__ == "__main__":
             total_frames += 1
 
             if "episode" in infos:
-                print("- state = {:>6d}; cum. reward = {}".format(total_frames, infos["episode"]["r"][infos["_episode"]]))
+                print("- frame = {:>6d}; cum. reward = {}".format(total_frames, infos["episode"]["r"][infos["_episode"]]))
 
         #Compute advantages and returns.
         with tc.no_grad():
@@ -104,7 +103,7 @@ if __name__ == "__main__":
                        buffer, 
                        optimizer, 
                        norm_adv=NORMALIZE_ADVANTAGE, 
-                       n_epochs=N_EPOCHS_PER_EPISODE, 
+                       n_epochs=N_EPOCHS, 
                        batch_size=BATCH_SIZE, 
                        max_grad_norm=MAX_GRADIENT_NORM,
                        clip_range=CLIP_RANGE,
@@ -113,6 +112,7 @@ if __name__ == "__main__":
                        entr_coeff=ENTROPY_COEFFICIENT)
 
     envs.close()
+
 
     env = gym.make("CarRacing-v3", render_mode="human")
     env = GrayscaleObservation(env)

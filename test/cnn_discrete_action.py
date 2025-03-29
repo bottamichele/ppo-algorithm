@@ -5,7 +5,7 @@ import torch as tc
 from gymnasium.spaces import Box
 from gymnasium.wrappers import GrayscaleObservation, ResizeObservation, FrameStackObservation, TransformObservation
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
-from gymnasium.vector import SyncVectorEnv, AsyncVectorEnv
+from gymnasium.vector import AsyncVectorEnv
 
 from torch.optim import Adam
 
@@ -26,7 +26,7 @@ NORMALIZE_ADVANTAGE = False
 BATCH_SIZE = 64
 MAX_GRADIENT_NORM = 0.5
 LEARNING_RATE = 10**-4
-N_EPOCHS_PER_EPISODE = 4
+N_EPOCHS = 4
 CLIP_RANGE = 0.2
 VALUE_COEFFICIENT = 0.5
 ENTROPY_COEFFICIENT = 0.0
@@ -49,7 +49,6 @@ def make_env(env_name):
 if __name__ == "__main__":
     #Create enviroment.
     envs = AsyncVectorEnv([lambda:make_env("CartPole-v1") for _ in range(N_ACTORS)])
-    # envs = SyncVectorEnv([lambda:make_env("CartPole-v1") for _ in range(N_ACTORS)])
     envs = RecordEpisodeStatistics(envs, buffer_length=1)
     OBSERVATION_SIZE = envs.single_observation_space.shape
     ACTION_SIZE = envs.single_action_space.n
@@ -64,7 +63,6 @@ if __name__ == "__main__":
     buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, 1, obs_dtype=tc.uint8, act_dtype=tc.int32, device=DEVICE)
 
     #Training phase.
-    scores = []
     total_frames = 0
     obs, infos = envs.reset()
     done = np.zeros(N_ACTORS, dtype=np.int32)
@@ -92,7 +90,7 @@ if __name__ == "__main__":
             total_frames += 1
 
             if "episode" in infos:
-                print("- state = {:>6d}; cum. reward = {}".format(total_frames, infos["episode"]["r"]))
+                print("- frame = {:>6d}; cum. reward = {}".format(total_frames, infos["episode"]["r"][infos["_episode"]]))
 
         #Compute advantages and returns.
         with tc.no_grad():
@@ -105,7 +103,7 @@ if __name__ == "__main__":
                        buffer, 
                        optimizer, 
                        norm_adv=NORMALIZE_ADVANTAGE, 
-                       n_epochs=N_EPOCHS_PER_EPISODE, 
+                       n_epochs=N_EPOCHS, 
                        batch_size=BATCH_SIZE, 
                        max_grad_norm=MAX_GRADIENT_NORM,
                        clip_range=CLIP_RANGE,
