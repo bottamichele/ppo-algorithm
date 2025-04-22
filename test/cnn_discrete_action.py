@@ -9,8 +9,9 @@ from gymnasium.vector import AsyncVectorEnv
 
 from torch.optim import Adam
 
-from ppo_algorithm import CnnActorCritic, Buffer
-from ppo_algorithm.train import train_policy_da, ppo_train_step
+from ppo_algorithm import Rollout
+from ppo_algorithm.neural_net.cnn import CnnActorCriticDiscrete
+from ppo_algorithm.training import  ppo_train_step
 
 # ========================================
 # ============ HYPERPARAMETERS ===========
@@ -19,10 +20,10 @@ from ppo_algorithm.train import train_policy_da, ppo_train_step
 TARGET_TOTAL_FRAMES = 200000
 FRAME_STACK = 4
 N_ACTORS = 8
-N_STEPS = 250
+N_STEPS = 256
 GAMMA = 0.99
 GAE_COEFFICIENT = 0.95
-NORMALIZE_ADVANTAGE = False
+NORMALIZE_ADVANTAGE = True
 BATCH_SIZE = 64
 MAX_GRADIENT_NORM = 0.5
 LEARNING_RATE = 10**-4
@@ -54,35 +55,37 @@ if __name__ == "__main__":
     ACTION_SIZE = envs.single_action_space.n
 
     #Create ActorCritic net.
-    model = CnnActorCritic(obs_size=OBSERVATION_SIZE, action_size=ACTION_SIZE).to(device=DEVICE)
+    model = CnnActorCriticDiscrete(obs_size=OBSERVATION_SIZE, action_size=ACTION_SIZE).to(device=DEVICE)
 
     #Create optimizer
     optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
-    #Create buffer.
-    buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, 1, obs_dtype=tc.uint8, act_dtype=tc.int32, device=DEVICE)
+    #Create rollout.
+    rollout = Rollout(N_STEPS, N_ACTORS, OBSERVATION_SIZE, (), obs_dtype=tc.uint8, act_dtype=tc.int32, device=DEVICE)
 
     #Training phase.
     total_frames = 0
     obs, infos = envs.reset()
     done = np.zeros(N_ACTORS, dtype=np.int32)
 
+    print("==================================================")
+
     while total_frames <= TARGET_TOTAL_FRAMES:
         for _ in range(N_STEPS):
-            obs = tc.from_numpy(obs).to(device=DEVICE)
-            done = tc.from_numpy(done).to(dtype=tc.int32, device=DEVICE)
-
-            #Choose action and compute log probability
+            #Choose action.
             with tc.no_grad():
-                action, value, action_dist = train_policy_da(model, obs)
-                log_prob = action_dist.log_prob(action)
+                action, value, log_prob, _ = model.action_and_value(tc.Tensor(obs).to(device=DEVICE))
 
             #Perform action chosen.
-            next_obs, r, terminated, truncation, infos = envs.step(action.reshape(-1).cpu().to(dtype=tc.int32).numpy())
-            reward = tc.from_numpy(r).to(device=DEVICE)
+            next_obs, reward, terminated, truncation, infos = envs.step(action.cpu().numpy())
 
-            #Store one step infos into buffer.
-            buffer.store(obs, action, log_prob, reward, done, value.reshape(-1))
+            #Store one step infos into rollout.
+            rollout.store(tc.Tensor(obs).to(device=DEVICE), 
+                          action, 
+                          log_prob, 
+                          tc.Tensor(reward).to(device=DEVICE), 
+                          tc.Tensor(done).to(device=DEVICE), 
+                          value.reshape(-1))
 
             #Next observation.
             obs = next_obs
@@ -94,13 +97,12 @@ if __name__ == "__main__":
 
         #Compute advantages and returns.
         with tc.no_grad():
-            _, value = model(tc.from_numpy(obs).to(device=DEVICE))
-        buffer.compute_advantage_and_return(value.reshape(-1), tc.from_numpy(done).to(dtype=tc.int32, device=DEVICE))
+            last_value = model.value(tc.Tensor(obs).to(device=DEVICE))
+            rollout.compute_advantages_and_returns(last_value.reshape(-1), tc.Tensor(done).to(device=DEVICE))
 
         #Train step.
-        ppo_train_step(model, 
-                       train_policy_da, 
-                       buffer, 
+        ppo_train_step(model,
+                       rollout, 
                        optimizer, 
                        norm_adv=NORMALIZE_ADVANTAGE, 
                        n_epochs=N_EPOCHS, 

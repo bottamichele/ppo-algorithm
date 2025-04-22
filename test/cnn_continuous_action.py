@@ -2,25 +2,24 @@ import gymnasium as gym
 import numpy as np
 import torch as tc
 
-from gymnasium.wrappers import GrayscaleObservation, ResizeObservation, FrameStackObservation
+from gymnasium.wrappers import GrayscaleObservation, FrameStackObservation
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
 from gymnasium.vector import AsyncVectorEnv
 
 from torch.optim import Adam
 
-from ppo_algorithm import CnnActorCritic, Buffer
-from ppo_algorithm.train import train_policy_ca, ppo_train_step
-
-from ppo_algorithm.policy import policy_ca
+from ppo_algorithm import Rollout
+from ppo_algorithm.neural_net.cnn import CnnActorCriticContinuous
+from ppo_algorithm.training import ppo_train_step
 
 # ========================================
 # ============ HYPERPARAMETERS ===========
 # ========================================
 
 TARGET_TOTAL_FRAMES = 200000
-FRAME_STACK = 4
-N_ACTORS = 8
-N_STEPS = 500
+FRAME_STACK = 1
+N_ACTORS = 6
+N_STEPS = 256
 GAMMA = 0.99
 GAE_COEFFICIENT = 0.95
 NORMALIZE_ADVANTAGE = True
@@ -32,6 +31,7 @@ CLIP_RANGE = 0.2
 VALUE_COEFFICIENT = 0.5
 ENTROPY_COEFFICIENT = 0.01
 KL_TARGET = None
+SHOW_ACTION_STD = True
 DEVICE = tc.device("cuda" if tc.cuda.is_available() else "cpu")
 
 # ========================================
@@ -41,7 +41,6 @@ DEVICE = tc.device("cuda" if tc.cuda.is_available() else "cpu")
 def make_env(env_name):
     env = gym.make(env_name)
     env = GrayscaleObservation(env)
-    env = ResizeObservation(env, (84, 84))
     env = FrameStackObservation(env, stack_size=FRAME_STACK, padding_type="zero")
     
     return env
@@ -54,35 +53,37 @@ if __name__ == "__main__":
     ACTION_SIZE = envs.single_action_space.shape[0]
 
     #Create ActorCritic net.
-    model = CnnActorCritic(obs_size=OBSERVATION_SIZE, action_size=ACTION_SIZE).to(device=DEVICE)
+    model = CnnActorCriticContinuous(obs_size=OBSERVATION_SIZE, action_size=ACTION_SIZE).to(device=DEVICE)
 
     #Create optimizer
     optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
-    #Create buffer.
-    buffer = Buffer(N_STEPS, N_ACTORS, OBSERVATION_SIZE, ACTION_SIZE, obs_dtype=tc.uint8, device=DEVICE)
+    #Create rollout.
+    rollout = Rollout(N_STEPS, N_ACTORS, OBSERVATION_SIZE, (ACTION_SIZE,), obs_dtype=tc.uint8, device=DEVICE)
 
     #Training phase.
     total_frames = 0
     obs, infos = envs.reset()
     done = np.zeros(N_ACTORS, dtype=np.int32)
 
+    print("==================================================")
+
     while total_frames <= TARGET_TOTAL_FRAMES:
         for _ in range(N_STEPS):
-            obs = tc.from_numpy(obs).to(device=DEVICE)
-            done = tc.from_numpy(done).to(dtype=tc.int32, device=DEVICE)
-
-            #Choose action and compute log probability
+             #Choose action.
             with tc.no_grad():
-                action, value, action_dist = train_policy_ca(model, obs)
-                log_prob = action_dist.log_prob(action)
+                action, value, log_prob, _ = model.action_and_value(tc.Tensor(obs).to(device=DEVICE))
 
             #Perform action chosen.
-            next_obs, r, terminated, truncation, infos = envs.step(action.reshape((N_ACTORS, ACTION_SIZE)).cpu().numpy())
-            reward = tc.from_numpy(r).to(device=DEVICE)
+            next_obs, reward, terminated, truncation, infos = envs.step(action.cpu().numpy())
 
-            #Store one step infos into buffer.
-            buffer.store(obs, action, log_prob, reward, done, value.reshape(-1))
+            #Store one step infos into rollout.
+            rollout.store(tc.Tensor(obs).to(device=DEVICE), 
+                          action, 
+                          log_prob, 
+                          tc.Tensor(reward).to(device=DEVICE), 
+                          tc.Tensor(done).to(device=DEVICE), 
+                          value.reshape(-1))
 
             #Next observation.
             obs = next_obs
@@ -92,15 +93,17 @@ if __name__ == "__main__":
             if "episode" in infos:
                 print("- frame = {:>6d}; cum. reward = {}".format(total_frames, infos["episode"]["r"][infos["_episode"]]))
 
+        if SHOW_ACTION_STD:
+            print("ACTION STD = {}".format(model._action_logstd.detach().exp()))   
+
         #Compute advantages and returns.
         with tc.no_grad():
-            _, value = model(tc.from_numpy(obs).to(device=DEVICE))
-        buffer.compute_advantage_and_return(value.reshape(-1), tc.from_numpy(done).to(dtype=tc.int32, device=DEVICE))
+            last_value = model.value(tc.Tensor(obs).to(device=DEVICE))
+            rollout.compute_advantages_and_returns(last_value.reshape(-1), tc.Tensor(done).to(device=DEVICE))
 
         #Train step.
-        ppo_train_step(model, 
-                       train_policy_ca, 
-                       buffer, 
+        ppo_train_step(model,
+                       rollout, 
                        optimizer, 
                        norm_adv=NORMALIZE_ADVANTAGE, 
                        n_epochs=N_EPOCHS, 
@@ -116,7 +119,6 @@ if __name__ == "__main__":
 
     env = gym.make("CarRacing-v3", render_mode="human")
     env = GrayscaleObservation(env)
-    env = ResizeObservation(env, (84, 84))
     env = FrameStackObservation(env, stack_size=FRAME_STACK, padding_type="zero")
 
     for e in range(500):
@@ -125,9 +127,9 @@ if __name__ == "__main__":
         r = 0
 
         while not done:
-            action = policy_ca(model, tc.from_numpy(obs).to(device=DEVICE))
+            action, _, _, _ = model.action_and_value(tc.Tensor(obs).unsqueeze(0).to(device=DEVICE))
 
-            next_obs, reward, terminated, truncation, _ = env.step(action.detach().cpu().numpy())
+            next_obs, reward, terminated, truncation, _ = env.step(action.squeeze(0).cpu().numpy())
 
             obs = next_obs
             done = terminated or truncation
