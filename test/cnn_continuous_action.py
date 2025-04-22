@@ -16,17 +16,17 @@ from ppo_algorithm.training import ppo_train_step
 # ============ HYPERPARAMETERS ===========
 # ========================================
 
-TARGET_TOTAL_FRAMES = 200000
+TARGET_TOTAL_FRAMES = 100000
 FRAME_STACK = 1
 N_ACTORS = 6
-N_STEPS = 256
+N_STEPS = 512
 GAMMA = 0.99
 GAE_COEFFICIENT = 0.95
 NORMALIZE_ADVANTAGE = True
 BATCH_SIZE = 64
 MAX_GRADIENT_NORM = 0.5
 LEARNING_RATE = 10**-4
-N_EPOCHS = 4
+N_EPOCHS = 6
 CLIP_RANGE = 0.2
 VALUE_COEFFICIENT = 0.5
 ENTROPY_COEFFICIENT = 0.01
@@ -42,7 +42,6 @@ def make_env(env_name):
     env = gym.make(env_name)
     env = GrayscaleObservation(env)
     env = FrameStackObservation(env, stack_size=FRAME_STACK, padding_type="zero")
-    
     return env
 
 if __name__ == "__main__":
