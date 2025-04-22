@@ -1,8 +1,18 @@
 import torch as tc
 
-from torch.nn import Module, Sequential, Conv2d, Linear, ReLU
+from torch.nn import Module, Sequential, Conv2d, Linear, ReLU, Parameter
+from torch.nn.functional import softmax
+from torch.distributions import Categorical, Normal
 
-def action_size_conv2d(input_dim, kernel_size, stride, padding):
+from ._base_nnet import BaseActorCritic
+
+__all__ = ["CnnActorCriticDiscrete", "CnnActorCriticContinuous"]
+
+# ========================================
+# =========== USEFUL FUNCTIONS ===========
+# ========================================
+
+def _action_size_conv2d(input_dim, kernel_size, stride, padding):
     """Return the output dimension (width and height) of a 2D convolution layer used in a CNN.
     
     Parameters
@@ -25,11 +35,14 @@ def action_size_conv2d(input_dim, kernel_size, stride, padding):
     h = input_dim[1]
     return (w + 2 * padding - kernel_size) // stride + 1, (h + 2 * padding - kernel_size) // stride + 1,
 
+# ========================================
+# ============= BASE VERSION =============
+# ========================================
 
-class CnnActorCritic(Module):
-    """A 2D convolutional neural network of Actor and Critic."""
+class _BaseCnnActorCritic(BaseActorCritic):
+    """Base class of a 2D convolutional neural network of Actor and Critic."""
 
-    def __init__(self, action_size, obs_size=(4, 84, 84), normalize_input=True, conv_layers=[(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], fc_dim=512, fc_num=1, actor_fc_num=1, critic_fc_num=1):
+    def __init__(self, action_size, obs_size=(4, 84, 84), conv_layers=[(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], fc_dim=512, fc_num=1, actor_fc_num=1, critic_fc_num=1, normalize_input=True):
         """Create new 2D convolutional neural network of Actor and Critic.
         
         Parameters:
@@ -40,27 +53,27 @@ class CnnActorCritic(Module):
         obs_size: tuple, optional
             observation size. The tuple must be as (ch, h, w) where 
             w is the image width, h is image height and ch is number of channels.
-
-        normalize_input: bool, optional
-            whethere or not to normalize inputs between 0.0 and 1.0
             
         conv_layers: list, optional
             list of 2D convolutional layer parameters. The list must contains tuples as (n_ch, k, s, p) where
             n_ch is number of channels, k is kernel size, s is stride and p is padding.
             
         fc_dim: int, optional
-            number of nodes for a fully connected layer
+            number of nodes for each fully connected layer
             
         fc_num: int, optional
             number of fully connected layers
             
-        actor_fc_num: int
+        actor_fc_num: int, optional
             number of Actor's hidden layers
 
-        critic_fc_num: int
-            number of Critic's hidden layers"""
+        critic_fc_num: int, optional
+            number of Critic's hidden layers
+            
+        normalize_input: bool, optional
+            whethere or not to normalize inputs between 0.0 and 1.0"""
         
-        super().__init__()
+        Module.__init__(self)
 
         if action_size <= 0:
             raise ValueError("action_size isn't a positive integer.")
@@ -103,7 +116,7 @@ class CnnActorCritic(Module):
                 #First fully connected layer.
                 _, height, width = obs_size
                 for (_, k, s, p) in conv_layers:
-                    width, height = action_size_conv2d((width, height), k, s, p)
+                    width, height = _action_size_conv2d((width, height), k, s, p)
                 
                 self._fc_layers.append(Linear(conv_layers[-1][0] * width * height, fc_dim))
             else:
@@ -136,27 +149,75 @@ class CnnActorCritic(Module):
                 self._critic_layers.append(Linear(fc_dim, fc_dim))
                 self._critic_layers.append(ReLU())
 
-    def forward(self, x):
-        """Process x.
-        
-        Parameter
-        --------------------
-        x: tc.Tensor
-            a tensor
-            
-        Return
-        --------------------
-        act_value: torch.Tensor
-            action values
-            
-        value_state: torch.Tensor
-            value-state value"""
-        
-        x = x.to(dtype=tc.float32)
+    def value(self, obs):
+        #Convertion and normalization.
+        obs = obs.to(tc.float32)
         if self._normalize_input:
-            x /= 255.0
+            obs /= 255.0
 
-        x = self._conv_layers(x)
-        x = x.view(x.size(0), -1)
-        x = self._fc_layers(x)
-        return self._actor_layers(x), self._critic_layers(x)
+        #Value-state.
+        h = self._conv_layers(obs)
+        h = h.view(h.size(0), -1)
+        h = self._fc_layers(h)
+        return self._critic_layers(h)
+    
+# ========================================
+# =========== DISCRETE VERSION ===========
+# ========================================
+
+class CnnActorCriticDiscrete(_BaseCnnActorCritic):
+    """A 2D convolutional neural network of Actor and Critic for enviroments with discrete actions."""
+
+    def action_and_value(self, obs, action=None):
+        #Convertion and normalization.
+        obs = obs.to(tc.float32)
+        if self._normalize_input:
+            obs /= 255.0
+
+        #Compute action probs and values.
+        h = self._conv_layers(obs)
+        h = h.view(h.size(0), -1)
+        h = self._fc_layers(h)
+
+        action_probs = softmax(self._actor_layers(h), dim=-1)
+        value = self._critic_layers(h)
+
+        #An action is chosen if not specified.
+        action_dist = Categorical(probs=action_probs)
+        if action is None:
+            action = action_dist.sample()
+
+        return action, value, action_dist.log_prob(action), action_dist.entropy()
+    
+# ========================================
+# ========== CONTINUOUS VERSION ==========
+# ========================================
+
+class CnnActorCriticContinuous(_BaseCnnActorCritic):
+    """A 2D convolutional neural network of Actor and Critic for enviroments with continuous actions."""
+
+    def __init__(self, action_size, obs_size=(4, 84, 84), conv_layers=[(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], fc_dim=512, fc_num=1, actor_fc_num=1, critic_fc_num=1, normalize_input=True):
+        super().__init__(action_size, obs_size, conv_layers, fc_dim, fc_num, actor_fc_num, critic_fc_num, normalize_input)
+        self._action_logstd = Parameter(tc.zeros(size=(1, action_size)), requires_grad=True)
+
+    def action_and_value(self, obs, action=None):
+        #Convertion and normalization.
+        obs = obs.to(tc.float32)
+        if self._normalize_input:
+            obs /= 255.0
+        
+        #Compute action probs and values.
+        h = self._conv_layers(obs)
+        h = h.view(h.size(0), -1)
+        h = self._fc_layers(h)
+        
+        action_mean = self._actor_layers(h)
+        value = self._critic_layers(h)
+
+        #An action is chosen if not specified.
+        action_logstd = self._action_logstd.expand_as(action_mean)
+        action_dist = Normal(loc=action_mean, scale=action_logstd.exp())
+        if action is None:
+            action = action_dist.sample()
+
+        return action, value, action_dist.log_prob(action).sum(1), action_dist.entropy().sum(1)
