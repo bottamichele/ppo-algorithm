@@ -82,19 +82,19 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
             surr_loss_1 = ratio_b * adv_b
             surr_loss_2 = tc.clamp(ratio_b, 1 - clip_range, 1 + clip_range) * adv_b
             surr_loss = tc.min(surr_loss_1, surr_loss_2).mean()
-            surrogate_losses.append(surr_loss)
+            surrogate_losses.append(surr_loss.item())
 
             #Compute value loss.
             value_loss = mse_loss(new_value_b.reshape(-1), return_b)
-            value_losses.append(value_loss)
+            value_losses.append(value_loss.item())
 
             #Compute entropy.
             entropy = entropy_b.mean()
-            entropy_losses.append(entropy)
+            entropy_losses.append(entropy.item())
 
             #Compute total loss.
             loss = -(surr_loss - value_coeff * value_loss + entr_coeff * entropy)
-            total_losses.append(loss)
+            total_losses.append(loss.item())
 
             #Compute gradient discent.
             optimizer.zero_grad()
