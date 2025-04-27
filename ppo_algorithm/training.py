@@ -1,4 +1,5 @@
 import torch as tc
+import numpy as np
 
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
@@ -47,7 +48,7 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
     Return
     --------------------
     losses: dict
-        a dictionary which contains each kind of loss computed at every epoch
+        a dictionary which contains useful information about train step computed
     """
 
     assert isinstance(model, BaseActorCritic), "model must be a subclass of BaseActorCritic"
@@ -56,6 +57,8 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
     value_losses = []
     entropy_losses = []
     total_losses = []
+    approx_kls = []
+    clip_fractions = []
 
     #Build a dataset which contains observations, actions and so on.
     dataset = TensorDataset(rollout.observations.reshape((-1,) + tuple(rollout.observations.shape[2:])), 
@@ -77,6 +80,10 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
             #Compute ratios.
             log_ratio_b = new_log_prob_b - log_prob_b
             ratio_b = tc.exp(log_ratio_b)
+
+            #Compute clip fraction.
+            clip_fraction = tc.mean((tc.abs(ratio_b - 1) > clip_range).to(dtype=tc.float32)).item()
+            clip_fractions.append(clip_fraction)
 
             #Compute surrogate loss
             surr_loss_1 = ratio_b * adv_b
@@ -106,10 +113,27 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
             #Compute approximante KL divergence (for more info http://joschu.net/blog/kl-approx.html).
             with tc.no_grad():
                 kl_value = ((ratio_b - 1) - log_ratio_b).mean()
+                approx_kls.append(kl_value)
 
             if kl_target is not None and kl_value > kl_target:
                 break
 
+    #Compute explained variance.
+    with tc.no_grad():
+        var_returns = rollout.returns.reshape(-1).var(dim=0).item()
+
+        if var_returns == 0:
+            explained_var = np.nan
+        else:
+            explained_var = 1.0 - tc.var(rollout.returns.reshape(-1) - rollout.values.reshape(-1), dim=0).item() / var_returns
+
+    #Rollout is cleared.
     rollout.clear()
 
-    return {"surrogate": surrogate_losses, "value": value_losses, "entropy": entropy_losses, "total": total_losses}
+    return {"surrogate_loss": float(np.mean(surrogate_losses)), 
+            "value_loss": float(np.mean(value_losses)), 
+            "entropy_loss": float(np.mean(entropy_losses)), 
+            "total_loss": float(np.mean(total_losses)),
+            "clip_fraction": float(np.mean(clip_fractions)),
+            "approx_kl": float(np.mean(approx_kls)),
+            "explained_variance": explained_var}

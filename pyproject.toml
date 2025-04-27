@@ -4,6 +4,6 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ppo-algorithm"
-version = "1.0"
-dependencies = ["torch"]
+version = "1.0.1"
+dependencies = ["torch", "numpy"]
 license = "MIT"

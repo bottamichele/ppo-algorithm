@@ -63,7 +63,6 @@ class PPOAgent:
         assert rollout.device == device, f"Expexted rollout.device is {device}, but it was {rollout.device}"
 
         self.rollout = rollout
-        self.losses = {}
 
         #Hyperparameters.
         self.n_steps = rollout.observations.shape[0]
@@ -148,7 +147,15 @@ class PPOAgent:
         Parameter
         --------------------
         last_obs: torch.Tensor
-            last observation of each enviroment before to perform one train step"""
+            last observation of each enviroment before to perform one train step
+            
+        last_done: torch.Tensor
+            last observation of each enviroment is a terminal state or not
+            
+        Return
+        --------------------
+        trainstep_info: dict
+            a dictionary which contains information about the train step computed"""
         
         assert last_obs.shape == self.rollout.observations.shape[1:], f"Expected last_obs.shape is {self.rollout.observations.shape[1:]}, but it was {last_obs.shape}"
         assert last_done.shape == self.rollout.dones.shape[1:], f"Expected last_done.shape is {self.rollout.dones.shape[1:]}, but it was {last_done.shape}"
@@ -161,23 +168,19 @@ class PPOAgent:
             self.rollout.compute_advantages_and_returns(last_value.reshape(-1), last_done, self.gae_coeff, self.gamma)
 
         #Train step.
-        losses = ppo_train_step(self.model, 
-                                self.rollout, 
-                                self.optimizer, 
-                                self.norm_adv, 
-                                self.n_epochs, 
-                                self.batch_size, 
-                                self.max_grad_norm, 
-                                self.clip_range, 
-                                self.kl_target, 
-                                self.value_coeff, 
-                                self.entropy_coeff)
-        
-        #Store all losses computed from last train step.
-        for k, v in losses.items():
-            l = self.losses.get(k, [])
-            l.extend(v)
-            self.losses[k] = l
+        train_step_infos = ppo_train_step(self.model, 
+                                          self.rollout, 
+                                          self.optimizer, 
+                                          self.norm_adv, 
+                                          self.n_epochs, 
+                                          self.batch_size, 
+                                          self.max_grad_norm, 
+                                          self.clip_range, 
+                                          self.kl_target, 
+                                          self.value_coeff, 
+                                          self.entropy_coeff)
+
+        return train_step_infos        
 
     def save_session(self, path):
         """Save current session of this agent on disk.
