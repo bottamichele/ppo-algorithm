@@ -66,6 +66,7 @@ class PPOAgent:
         self.losses = {}
 
         #Hyperparameters.
+        self.n_steps = rollout.observations.shape[0]
         self.gamma = gamma
         self.gae_coeff = gae_coeff
         self.norm_adv = norm_adv
