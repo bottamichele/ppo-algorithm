@@ -10,6 +10,7 @@ from ppo_algorithm.training import ppo_train_step
 
 class PPOAgent:
     """A PPO training agent."""
+
     def __init__(self, model, rollout, lr, batch_size, n_epochs, device, gamma=0.99, gae_coeff=0.95, norm_adv=True, kl_target=None, max_grad_norm=0.5, clip_range=0.2, value_coeff=0.5, entr_coeff=0.0):
         """Create new PPO training agent.
         
@@ -101,7 +102,7 @@ class PPOAgent:
             log probability of each action chosen"""
         
         assert obs.shape == self.rollout.observations.shape[1:], f"Expected obs.shape is {self.rollout.observations.shape[1:]}, but it was {obs.shape}"
-        assert obs.device == self.device
+        assert obs.device == self.device, f"Expected obs.device is {self.device}, but it was {obs.device}"
 
         with tc.no_grad():
             action, value, logprob, _ = self.model.action_and_value(obs)
@@ -131,12 +132,12 @@ class PPOAgent:
         value: torch.Tensor
             obs's value-state of each enviroment"""
         
-        assert obs.device == self.device
-        assert action.device == self.device
-        assert log_prob.device == self.device
-        assert reward.device == self.device
-        assert done.device == self.device
-        assert value.device == self.device
+        assert obs.device == self.device, f"Expected obs.device is {self.device}, but it was {obs.device}"
+        assert action.device == self.device, f"Expected action.device is {self.device}, but it was {action.device}"
+        assert log_prob.device == self.device, f"Expected log_prob.device is {self.device}, but it was {log_prob.device}"
+        assert reward.device == self.device, f"Expected reward.device is {self.device}, but it was {reward.device}"
+        assert done.device == self.device, f"Expected done.device is {self.device}, but it was {done.device}"
+        assert value.device == self.device, f"Expected value.device is {self.device}, but it was {value.device}"
 
         self.rollout.store(obs, action, log_prob, reward, done, value)
 
@@ -150,8 +151,8 @@ class PPOAgent:
         
         assert last_obs.shape == self.rollout.observations.shape[1:], f"Expected last_obs.shape is {self.rollout.observations.shape[1:]}, but it was {last_obs.shape}"
         assert last_done.shape == self.rollout.dones.shape[1:], f"Expected last_done.shape is {self.rollout.dones.shape[1:]}, but it was {last_done.shape}"
-        assert last_obs.device == self.device
-        assert last_done.device == self.device
+        assert last_obs.device == self.device, f"Expected last_obs.device is {self.device}, but it was {last_obs.device}"
+        assert last_done.device == self.device, f"Expected last_done.device is {self.device}, but it was {last_done.device}"
 
         #Compute advantages and returns.
         with tc.no_grad():
