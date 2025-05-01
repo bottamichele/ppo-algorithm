@@ -59,6 +59,7 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
     total_losses = []
     approx_kls = []
     clip_fractions = []
+    stop_train = False
 
     #Build a dataset which contains observations, actions and so on.
     dataset = TensorDataset(rollout.observations.reshape((-1,) + tuple(rollout.observations.shape[2:])), 
@@ -69,6 +70,7 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
     
     for _ in range(n_epochs):
         dataloader = DataLoader(dataset, batch_size, shuffle=True)
+        approx_kls = []
 
         for (obs_b, action_b, log_prob_b, adv_b, return_b) in dataloader:
             _, new_value_b, new_log_prob_b, entropy_b = model.action_and_value(obs_b, action_b)
@@ -103,6 +105,15 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
             loss = -(surr_loss - value_coeff * value_loss + entr_coeff * entropy)
             total_losses.append(loss.item())
 
+            #Compute approximante KL divergence (for more info http://joschu.net/blog/kl-approx.html).
+            with tc.no_grad():
+                kl_value = ((ratio_b - 1) - log_ratio_b).mean()
+                approx_kls.append(kl_value.item())
+
+            if kl_target is not None and kl_value > kl_target:
+                stop_train = True
+                break
+
             #Compute gradient discent.
             optimizer.zero_grad()
             loss.backward()
@@ -110,13 +121,8 @@ def ppo_train_step(model, rollout, optimizer, norm_adv=True, n_epochs=6, batch_s
                 clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
 
-            #Compute approximante KL divergence (for more info http://joschu.net/blog/kl-approx.html).
-            with tc.no_grad():
-                kl_value = ((ratio_b - 1) - log_ratio_b).mean()
-                approx_kls.append(kl_value)
-
-            if kl_target is not None and kl_value > kl_target:
-                break
+        if stop_train:
+            break
 
     #Compute explained variance.
     with tc.no_grad():
