@@ -6,11 +6,11 @@ in Python languange.
 
 # Installation
 This library must be installed locally to be used. You need to do the following steps to install it:
-1. download this repository either from this page or by running the command on terminal:
+1. download this repository either from this page or by running the command in your terminal:
    ```
    git clone https://github.com/bottamichele/ppo-algorithm
    ```
-3. run `pip install <path_repository>` (***<path_repository>*** is the absolute path of the downloaded repository)
+3. run `pip install <path_repository>` (where ***<path_repository>*** is the absolute path of the downloaded repository)
    to install the library with all its dependecies.
 
 ## License
